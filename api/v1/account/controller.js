@@ -22,6 +22,7 @@ const options = {
 };
 const format = require('../../../config/format');
 const base64 = require('../../../utils/base64');
+const FileType = require('file-type');
 const AWS = require('aws-sdk');
 const s3 = new AWS.S3({
   s3ForcePathStyle: true,
@@ -30,6 +31,64 @@ const s3 = new AWS.S3({
   },
   region: 'Jakarta', endpoint: 'https://global.jagoanstorage.com'
 });
+
+exports.uploadFileV2 = async function (req, res) {
+  try {
+    let statusPart;
+    let partSize = 1024 * 1024 * 5; // Minimum 5MB per chunk
+    let file = base64.returnBase64();
+    let buffer = Buffer.from(file,'base64')
+    let filetype = await FileType.fromBuffer(buffer);
+    let ext = filetype.ext;
+    let mime = filetype.mime;
+    let name = moment().format('YYYYMMDDHHmmSSS');
+    let bucket = 'bucket-sit-c58v4';
+    let key = `${ext}/${name}`;
+
+    let numPartsLeft = Math.ceil(buffer.length / partSize);
+    let partNum = 0;
+    let multiPartParams = {
+      ACL: 'public-read',
+      Bucket: bucket,
+      Key: key,
+      ContentEncoding: 'base64',
+      ContentType: mime
+    };
+    let multipart = await s3.createMultipartUpload(multiPartParams).promise();
+    let multipartMap = { Parts: [] };
+    for (let rangeStart = 0; rangeStart < buffer.length; rangeStart += partSize) {
+      try{
+        partNum += 1;
+        let end = Math.min(rangeStart + partSize, buffer.length)
+        let partParams = {
+          Bucket: bucket,
+          Key: key,  
+          Body: buffer.slice(rangeStart, end),
+          PartNumber: String(partNum),
+          UploadId: multipart.UploadId
+        };
+        let result = await s3.uploadPart(partParams).promise();
+        multipartMap.Parts[partNum - 1] = { ETag: result.ETag, PartNumber: Number(partNum) };
+        let pp = Math.ceil((partNum / numPartsLeft) * 100);
+        logger.debug(`sukses upload part ${partNum} with persentase ${pp}%`)
+        statusPart = 1;
+      }catch(e){
+        logger.debug(`error muncul pada upload part...`, e)
+        statusPart = 0;
+        break;
+      }
+    }
+    if(!statusPart){
+      return res.status(200).json(rsmg());
+    }
+    let doneParams = { Bucket: bucket, Key: key, MultipartUpload: multipartMap, UploadId: multipart.UploadId };
+    const result = await s3.completeMultipartUpload(doneParams).promise();
+    return res.status(200).json(rsmg(result));
+  } catch (e) {
+    logger.error('error upload file v2...', e);
+    return utils.returnErrorFunction(res, 'error upload file v2...', e.toString());
+  }
+};
 
 exports.uploadFile = async function (req, res) {
   try {

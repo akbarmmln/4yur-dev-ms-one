@@ -15,5 +15,6 @@ router.post('/token', controller.token);
 router.post('/pdf', controller.createpdf, controller.receivedpdf);
 
 router.post('/upld', controller.uploadFile);
+router.post('/upload-file-v2', controller.uploadFileV2);
 
 module.exports = router;
